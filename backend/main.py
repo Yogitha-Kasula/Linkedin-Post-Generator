@@ -2,12 +2,20 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from google import genai
+from pymongo import MongoClient
 import os
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# AI client
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+# Database connection
+mongo_client = MongoClient(os.getenv("MONGODB_URI"))
+db = mongo_client["linkedin_generator"]
+posts_collection = db["posts"]
 
 app = FastAPI()
 
@@ -34,4 +42,18 @@ def generate_post(request: PostRequest):
         model="gemini-2.5-flash",
         contents=prompt
     )
-    return {"post": response.text}
+    generated_text = response.text
+
+    posts_collection.insert_one({
+        "topic": request.topic,
+        "tone": request.tone,
+        "post": generated_text,
+        "created_at": datetime.utcnow()
+    })
+
+    return {"post": generated_text}
+
+@app.get("/history")
+def get_history():
+    posts = list(posts_collection.find({}, {"_id": 0}).sort("created_at", -1))
+    return {"history": posts}
